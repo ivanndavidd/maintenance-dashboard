@@ -43,7 +43,6 @@ import {
   Plus,
   X,
   Wrench,
-  ListEnd as Legend,
 } from "lucide-react";
 import {
   BarChart,
@@ -69,7 +68,7 @@ type DataTable = DataRow[];
 interface CustomTooltipProps {
   active?: boolean;
   label?: string;
-  payload?: { value: number; name: string; color: string }[];
+  payload?: { value: number }[];
 }
 
 interface ExcelData {
@@ -350,60 +349,6 @@ export default function MaintenanceDashboard() {
       return null;
     };
 
-    if (fileName.includes("sudden error form")) {
-      // Create MTBF Analysis line chart
-      newCharts.push({
-        id: `${datasetId}-mtbf-analysis`,
-        name: "MTBF Analysis by Machine Parts",
-        type: "line",
-        xColumn: "Input Time (Waktu Kejadian)", // Date column for X-axis
-        yColumn: "",
-        groupColumn: "Machine Parts", // Group by machine parts for multiple lines
-        datasetId,
-      });
-    }
-
-    if (fileName.includes("preventive maintenance schedule")) {
-      // Find the Status column for pie chart
-      const statusColumn = headers.find((h) =>
-        h.toLowerCase().includes("status")
-      );
-
-      // Find the Last Done Date column for bar chart
-      const lastDoneDateColumn = headers.find(
-        (h) =>
-          h.toLowerCase().includes("last done date") ||
-          h.toLowerCase().includes("last done") ||
-          h.toLowerCase().includes("done date")
-      );
-
-      // Add pie chart for status distribution (Done vs Not Done Yet)
-      if (statusColumn) {
-        newCharts.push({
-          id: `${datasetId}-status-pie`,
-          name: "Status Distribution (Done vs Not Done Yet)",
-          type: "pie",
-          xColumn: statusColumn,
-          yColumn: "",
-          groupColumn: "",
-          datasetId,
-        });
-      }
-
-      // Add bar chart for monthly completion trends
-      if (lastDoneDateColumn) {
-        newCharts.push({
-          id: `${datasetId}-monthly-completion`,
-          name: "Monthly Completion Trends",
-          type: "bar",
-          xColumn: lastDoneDateColumn,
-          yColumn: "",
-          groupColumn: "",
-          datasetId,
-        });
-      }
-    }
-
     if (fileName.includes("parts usage")) {
       // Create "Cost Part" bar chart using "Total Price Part 1" classified by "Part Model 1"
       const priceColumn = findColumn([
@@ -543,168 +488,6 @@ export default function MaintenanceDashboard() {
     const fileName = excelData.fileName.toLowerCase();
     let dateColumnIndex = -1;
 
-    if (
-      fileName.includes("sudden error form") &&
-      card.name.includes("MTBF Analysis")
-    ) {
-      const machinePartsIndex = excelData.headers.findIndex((h) =>
-        h.toLowerCase().includes("machine parts")
-      );
-      const inputTimeIndex = excelData.headers.findIndex((h) =>
-        h.toLowerCase().includes("input time")
-      );
-
-      if (machinePartsIndex === -1 || inputTimeIndex === -1) return [];
-
-      // Group errors by machine part and month/year
-      const errorsByPartAndMonth = new Map();
-
-      excelData.rows.forEach((row) => {
-        const machinePartsValue = row[machinePartsIndex]?.toString();
-        const inputTimeValue = row[inputTimeIndex]?.toString();
-
-        if (!machinePartsValue || !inputTimeValue) return;
-
-        try {
-          // Parse machine parts (could be array format like ["Induction"])
-          let machineParts = [];
-          if (
-            machinePartsValue.startsWith("[") &&
-            machinePartsValue.endsWith("]")
-          ) {
-            // Parse array format
-            const content = machinePartsValue.slice(1, -1); // Remove [ and ]
-            if (content.startsWith('"') && content.endsWith('"')) {
-              // Single quoted item like ["Singulator"]
-              machineParts = [content.slice(1, -1)]; // Remove quotes
-            } else {
-              // Try to split by comma for multiple items
-              machineParts = content
-                .split(",")
-                .map(
-                  (item) => item.trim().replace(/^["']|["']$/g, "") // Remove quotes
-                )
-                .filter((item) => item.length > 0);
-            }
-          } else {
-            machineParts = [machinePartsValue];
-          }
-
-          const date = new Date(inputTimeValue);
-          if (isNaN(date.getTime())) return;
-
-          const monthYear = `${date.toLocaleDateString("en-US", {
-            month: "short",
-          })} ${date.getFullYear()}`;
-
-          machineParts.forEach((part) => {
-            const key = `${part}-${monthYear}`;
-            if (errorsByPartAndMonth.has(key)) {
-              errorsByPartAndMonth.set(key, errorsByPartAndMonth.get(key) + 1);
-            } else {
-              errorsByPartAndMonth.set(key, 1);
-            }
-          });
-        } catch (error) {
-          console.error("Error parsing machine parts or date:", error);
-        }
-      });
-
-      // Calculate MTBF for each machine part and month
-      const mtbfData = new Map();
-      const monthsSet = new Set();
-
-      errorsByPartAndMonth.forEach((errorCount, key) => {
-        const [part, monthYear] = key.split("-");
-        const operationHours = 30 * 24; // 30 days * 24 hours = 720 hours per month
-        const mtbf = operationHours / errorCount;
-
-        monthsSet.add(monthYear);
-
-        if (!mtbfData.has(part)) {
-          mtbfData.set(part, new Map());
-        }
-        mtbfData.get(part).set(monthYear, mtbf);
-      });
-
-      // Convert to chart format with multiple lines
-      const months = Array.from(monthsSet).sort((a, b) => {
-        const dateA = new Date(a as string);
-        const dateB = new Date(b as string);
-        return dateA.getTime() - dateB.getTime();
-      });
-
-      const chartData = months.map((month) => {
-        const dataPoint: Record<string, unknown> = { name: month };
-        mtbfData.forEach((monthData, part) => {
-          dataPoint[part] = monthData.get(month) || 0;
-        });
-        return dataPoint;
-      });
-
-      return chartData;
-    }
-
-    if (fileName.includes("preventive maintenance schedule")) {
-      // For monthly completion trends, we need to process Last Done Date differently
-      if (card.name.includes("Monthly Completion")) {
-        const statusIndex = excelData.headers.findIndex((h) =>
-          h.toLowerCase().includes("status")
-        );
-        const dataMap = new Map();
-
-        excelData.rows.forEach((row) => {
-          const dateValue = row[xIndex]?.toString();
-          const statusValue = row[statusIndex]?.toString();
-
-          // Only count "Done" status items
-          if (
-            statusValue &&
-            statusValue.toLowerCase().includes("done") &&
-            !statusValue.toLowerCase().includes("not")
-          ) {
-            if (dateValue) {
-              try {
-                const date = new Date(dateValue);
-                if (!isNaN(date.getTime())) {
-                  // const monthYear = `${date.getFullYear()}-${String(
-                  //   date.getMonth() + 1
-                  // ).padStart(2, "0")}`;
-                  const displayMonthYear = `${date.toLocaleDateString("en-US", {
-                    month: "short",
-                  })} ${date.getFullYear()}`;
-
-                  if (dataMap.has(displayMonthYear)) {
-                    dataMap.set(
-                      displayMonthYear,
-                      dataMap.get(displayMonthYear) + 1
-                    );
-                  } else {
-                    dataMap.set(displayMonthYear, 1);
-                  }
-                }
-              } catch (error) {
-                console.error("Error parsing date:", dateValue);
-              }
-            }
-          }
-        });
-
-        return Array.from(dataMap.entries())
-          .map(([name, value]) => ({
-            name,
-            value: Number(value),
-            dateRange: name,
-          }))
-          .sort((a, b) => {
-            // Sort by date
-            const dateA = new Date(a.name);
-            const dateB = new Date(b.name);
-            return dateA.getTime() - dateB.getTime();
-          });
-      }
-    }
-
     if (fileName.includes("preventive maintenance report")) {
       dateColumnIndex = excelData.headers.findIndex(
         (h) =>
@@ -838,11 +621,9 @@ export default function MaintenanceDashboard() {
       return (
         <div className="bg-white p-3 border border-gray-300 rounded shadow-lg">
           <p className="font-medium">{label}</p>
-          {payload.map((entry, index) => (
-            <p key={index} style={{ color: entry.color }}>
-              {entry.name}: {formatNumber(entry.value)} hours
-            </p>
-          ))}
+          <p className="text-blue-600">
+            value: {formatNumber(payload[0].value)}
+          </p>
         </div>
       );
     }
@@ -1096,9 +877,7 @@ export default function MaintenanceDashboard() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
-                      <div className="h-80">{renderChart(card)}</div>
-                    </div>
+                    <div className="h-64">{renderChart(card)}</div>
                     {renderDataTable(card)}
                   </CardContent>
                 </Card>
@@ -1158,104 +937,37 @@ export default function MaintenanceDashboard() {
           </ResponsiveContainer>
         );
       case "line":
-      case "line":
-        if (card.name.includes("MTBF Analysis")) {
-          // Get all machine parts from the data
-          const machineParts = new Set();
-          chartData.forEach((item) => {
-            Object.keys(item).forEach((key) => {
-              if (key !== "name") {
-                machineParts.add(key);
-              }
-            });
-          });
-
-          const colors = [
-            "#3b82f6",
-            "#ef4444",
-            "#10b981",
-            "#f59e0b",
-            "#8b5cf6",
-            "#06b6d4",
-            "#f97316",
-          ];
-
-          return (
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={chartData}
-                margin={{
-                  top: 20,
-                  right: 30,
-                  left: 20,
-                  bottom: 80,
-                }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="name"
-                  angle={chartData.length > 8 ? -45 : 0}
-                  textAnchor={chartData.length > 8 ? "end" : "middle"}
-                  height={chartData.length > 8 ? 100 : 60}
-                  interval={0}
-                  tick={{ fontSize: 12 }}
-                />
-                <YAxis
-                  tickFormatter={formatNumber}
-                  label={{
-                    value: "MTBF (Hours)",
-                    angle: -90,
-                    position: "insideLeft",
-                  }}
-                />
-                <Tooltip content={<CustomTooltip />} />
-                <Legend />
-                {Array.from(machineParts).map((part, index) => (
-                  <Line
-                    key={String(part)}
-                    type="linear"
-                    dataKey={String(part)}
-                    stroke={colors[index % colors.length]}
-                    strokeWidth={2}
-                    name={String(part)}
-                  />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
-          );
-        } else {
-          return (
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={chartData}
-                margin={{
-                  top: 20,
-                  right: 30,
-                  left: 20,
-                  bottom: 80,
-                }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="name"
-                  angle={chartData.length > 8 ? -45 : 0}
-                  textAnchor={chartData.length > 8 ? "end" : "middle"}
-                  height={chartData.length > 8 ? 100 : 60}
-                  interval={0}
-                  tick={{ fontSize: 12 }}
-                />
-                <YAxis tickFormatter={formatNumber} />
-                <Tooltip content={<CustomTooltip />} />
-                <Line
-                  type="monotone"
-                  dataKey="value"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          );
-        }
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={chartData}
+              margin={{
+                top: 20,
+                right: 30,
+                left: 20,
+                bottom: 80,
+              }}
+            >
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis
+                dataKey="name"
+                angle={chartData.length > 8 ? -45 : 0}
+                textAnchor={chartData.length > 8 ? "end" : "middle"}
+                height={chartData.length > 8 ? 100 : 60}
+                interval={0}
+                tick={{ fontSize: 12 }}
+              />
+              <YAxis tickFormatter={formatNumber} />
+              <Tooltip content={<CustomTooltip />} />
+              <Line
+                type="monotone"
+                dataKey="value"
+                stroke="#3b82f6"
+                strokeWidth={2}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        );
       case "pie":
         return (
           <ResponsiveContainer width="100%" height={400}>
@@ -1279,8 +991,6 @@ export default function MaintenanceDashboard() {
                 outerRadius={100}
                 fill="#8884d8"
                 dataKey="value"
-                onClick={(data) => handleDataValueClick(data.name, card)}
-                style={{ cursor: "pointer" }}
               >
                 {chartData.map((entry, index) => (
                   <Cell
@@ -1301,12 +1011,7 @@ export default function MaintenanceDashboard() {
   const renderDataTable = (card: ChartCard) => {
     const chartData = getChartData(card);
 
-    if (
-      !chartData ||
-      chartData.length === 0 ||
-      card.type === "pie" ||
-      card.type === "line"
-    ) {
+    if (!chartData || chartData.length <= 2) {
       return null;
     }
 
@@ -1338,11 +1043,9 @@ export default function MaintenanceDashboard() {
                     {item.name}
                   </TableCell>
                   <TableCell className="text-xs">
-                    {"value" in item ? formatNumber(item.value as number) : ""}
+                    {formatNumber(item.value)}
                   </TableCell>
-                  <TableCell className="text-xs">
-                    {"dateRange" in item ? item.dateRange : ""}
-                  </TableCell>
+                  <TableCell className="text-xs">{item.dateRange}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -1360,7 +1063,7 @@ export default function MaintenanceDashboard() {
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
               <Image
-                src="/assets/blibli.svg"
+                src="/assets/blibli.jpg"
                 alt="Dashboard Logo"
                 className="h-8 w-8"
                 width={32}
@@ -1430,41 +1133,39 @@ export default function MaintenanceDashboard() {
               Maintenance Details: {maintenanceDetail?.itemName}
             </DialogTitle>
           </DialogHeader>
-          <div className="overflow-auto max-h-[60vh] border rounded-md">
+          <div className="overflow-auto max-h-[60vh]">
             {maintenanceDetail && (
-              <div className="min-w-full overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      {maintenanceDetail.headers.map((header, index) => (
-                        <TableHead
-                          key={index}
-                          className="font-semibold min-w-[120px] text-xs whitespace-nowrap"
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    {maintenanceDetail.headers.map((header, index) => (
+                      <TableHead
+                        key={index}
+                        className="font-semibold min-w-[120px] text-xs"
+                      >
+                        {header}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {maintenanceDetail.records.map((row, rowIndex) => (
+                    <TableRow key={rowIndex}>
+                      {row.map((cell, cellIndex) => (
+                        <TableCell
+                          key={cellIndex}
+                          className="text-xs max-w-[200px]"
+                          title={cell?.toString()}
                         >
-                          {header}
-                        </TableHead>
+                          <div className="truncate">
+                            {cell?.toString() || "-"}
+                          </div>
+                        </TableCell>
                       ))}
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {maintenanceDetail.records.map((row, rowIndex) => (
-                      <TableRow key={rowIndex}>
-                        {row.map((cell, cellIndex) => (
-                          <TableCell
-                            key={cellIndex}
-                            className="text-xs max-w-[200px]"
-                            title={cell?.toString()}
-                          >
-                            <div className="truncate">
-                              {cell?.toString() || "-"}
-                            </div>
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                  ))}
+                </TableBody>
+              </Table>
             )}
           </div>
         </DialogContent>
