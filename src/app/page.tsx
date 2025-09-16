@@ -840,7 +840,7 @@ export default function MaintenanceDashboard() {
           <p className="font-medium">{label}</p>
           {payload.map((entry, index) => (
             <p key={index} style={{ color: entry.color }}>
-              {entry.name}: {formatNumber(entry.value)} hours
+              {entry.name}: {formatNumber(entry.value)}
             </p>
           ))}
         </div>
